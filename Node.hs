@@ -1,28 +1,58 @@
-module Node where
+module Node
+  ( Node(..)
+  , Edge(..)
+  , Graph(..)
+  , GraphM
+  , node
+  , edge
+  ) where
 
-import Data.IORef
+import Data.Monoid
+import Data.Unique
+import qualified Data.IntMap as IM
 import Control.Applicative
-import Event
+import Control.Monad.Trans.State
+import Control.Monad.IO.Class
+
+type Number = Int
+type Ident  = Int
 
 data Status = Active | Inactive
 
-data Node a = Node
-  { status    :: IORef Status
-  , state     :: IORef a
-  , event     :: Event a
-  , threshold :: a
+data Node = Node
+  { nodeId    :: Ident
+  , shreshold :: Number
   }
 
-newNode :: Status -> a -> a -> IO (Node a)
-newNode status a s = Node <$> newIORef status <*> newIORef a <*> newEvent <*> pure s
+data Edge = Edge
+  { edgeId :: Ident
+  , nodef  :: Ident
+  , nodet  :: Ident
+  , ratio  :: Number
+  }
 
-fireNode :: Node a -> IO ()
-fireNode node = do
-    a <- readIORef (state node)
-    fire (event node) a
+data Graph = Graph
+  { nodes :: IM.IntMap Node
+  , edges :: IM.IntMap Edge
+  }
 
-connectNode :: Ord b => Node a -> Node b -> (a -> b -> b) -> IO ()
-connectNode from to f = listen (event from) $ \a -> do
-                          modifyIORef (state to) (f a)
-                          b <- readIORef (state to)
-                          writeIORef (status to) (if (b>=threshold to) then Active else Inactive)
+emptyGraph = Graph IM.empty IM.empty
+
+type GraphM = StateT Graph IO
+
+node :: Status -> Number -> GraphM Ident
+node st a = do
+    nid <- hashUnique <$> liftIO newUnique
+    let n = Node nid st a
+    modify $ \g -> g{nodes=IM.insert nid n (nodes g)}
+    return nid
+
+edge :: Ident -> Ident -> Number -> GraphM Ident
+edge nodef nodet ratio = do
+    eid <- hashUnique <$> liftIO newUnique
+    let e = Edge eid nodef nodet ratio
+    modify $ \g -> g{edges=IM.insert eid e (edges g)}
+    return eid
+
+build :: GraphM () -> IO Graph
+build m = execStateT m emptyGraph
