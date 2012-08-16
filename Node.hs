@@ -1,58 +1,51 @@
 module Node
   ( Node(..)
-  , Edge(..)
-  , Graph(..)
-  , GraphM
-  , node
-  , edge
+  , NodeInput(..)
+  , newNode
+  , newSimpleNode
   ) where
 
-import Data.Monoid
+import Data.IORef
 import Data.Unique
-import qualified Data.IntMap as IM
 import Control.Applicative
-import Control.Monad.Trans.State
-import Control.Monad.IO.Class
-
-type Number = Int
-type Ident  = Int
 
 data Status = Active | Inactive
+    deriving (Eq)
 
 data Node = Node
-  { nodeId    :: Ident
-  , shreshold :: Number
+  { nid       :: Int
+  , feed      :: Int -> IO ()
+  , update    :: IO ()
+  , getOutput :: IO Int
   }
 
-data Edge = Edge
-  { edgeId :: Ident
-  , nodef  :: Ident
-  , nodet  :: Ident
-  , ratio  :: Number
+data NodeInput = NodeInput
+  { inputNode :: Node
+  , ratio     :: Int
   }
 
-data Graph = Graph
-  { nodes :: IM.IntMap Node
-  , edges :: IM.IntMap Edge
-  }
+newNode :: Int -> IO Node
+newNode shreshold = do
+    nid <- hashUnique <$> newUnique
+    st  <- newIORef Inactive
+    val <- newIORef 0
+    let feed = writeIORef val
+        val2st v = if v>=shreshold
+                     then Active
+                     else Inactive
+        st2val st' = if st'==Active
+                       then 100
+                       else 0
+        update = readIORef val >>= writeIORef st . val2st
+        output = st2val <$> readIORef st
+    return $ Node nid feed update output
 
-emptyGraph = Graph IM.empty IM.empty
-
-type GraphM = StateT Graph IO
-
-node :: Status -> Number -> GraphM Ident
-node st a = do
-    nid <- hashUnique <$> liftIO newUnique
-    let n = Node nid st a
-    modify $ \g -> g{nodes=IM.insert nid n (nodes g)}
-    return nid
-
-edge :: Ident -> Ident -> Number -> GraphM Ident
-edge nodef nodet ratio = do
-    eid <- hashUnique <$> liftIO newUnique
-    let e = Edge eid nodef nodet ratio
-    modify $ \g -> g{edges=IM.insert eid e (edges g)}
-    return eid
-
-build :: GraphM () -> IO Graph
-build m = execStateT m emptyGraph
+newSimpleNode :: IO Node
+newSimpleNode = do
+    nid <- hashUnique <$> newUnique
+    val <- newIORef 0
+    return $ Node
+               nid
+               (writeIORef val)
+               (return ())
+               (readIORef val)
